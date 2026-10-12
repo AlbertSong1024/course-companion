@@ -50,14 +50,20 @@ _EP_LIST = "aHR0cHM6Ly9qc3h4Lmdkcy5lZHUuY24vdWMvc3RvcmUvY291cnNlUmVnaXN0ZXI="
 # ============================================
 
 
-def ask_input(prompt):
-    """弹窗收集输入（支持后台运行，不依赖终端）。"""
+def ask_input(prompt, mask=False):
+    """弹窗收集输入（支持后台运行，不依赖终端）。
+    mask=True 时输入以星号显示（用于密码等敏感内容）。"""
     import tkinter as tk
     from tkinter import simpledialog
     root = tk.Tk()
     root.withdraw()
     root.attributes("-topmost", True)  # 弹窗置顶，确保用户看得到
-    val = simpledialog.askstring("Course Companion · 看课小帮手", prompt, parent=root)
+    if mask:
+        val = simpledialog.askstring("Course Companion · 看课小帮手", prompt,
+                                     show="*", parent=root)
+    else:
+        val = simpledialog.askstring("Course Companion · 看课小帮手", prompt,
+                                     parent=root)
     root.destroy()
     return val
 
@@ -87,7 +93,8 @@ def load_credentials():
 
     log("未检测到配置文件，开始首次配置（共 2 项，仅此一次）…")
     account = (ask_input("首次配置 1/2：请输入登录账号") or "").strip()
-    password = (ask_input("首次配置 2/2：请输入登录密码") or "").strip()
+    password = (ask_input("首次配置 2/2：请输入登录密码（输入将以星号隐藏）",
+                          mask=True) or "").strip()
     if not account or not password:
         log("账号或密码为空，退出。重新运行可再次配置")
         sys.exit(1)
