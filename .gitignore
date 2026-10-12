@@ -1,0 +1,6 @@
+# 本地凭据与运行时文件，切勿提交到仓库
+credentials.local.json
+auth.json
+captcha.png
+__pycache__/
+*.pyc
