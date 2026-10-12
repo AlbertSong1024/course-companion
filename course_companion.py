@@ -369,6 +369,23 @@ def ensure_login(page, context, cred):
 
 def main():
     cred = load_credentials()
+    finished = False
+    while not finished:
+        try:
+            finished = _run_session(cred)
+        except Exception as e:
+            if "closed" in str(e).lower():
+                # 浏览器窗口被意外关闭：自动重启并从服务端进度续学
+                log("检测到浏览器窗口被关闭，10 秒后自动重启恢复学习…")
+                time.sleep(10)
+            else:
+                raise
+
+
+def _run_session(cred):
+    """单次浏览器会话：登录 → 定位课时 → 挂机推进。
+    返回 True 表示本次会话正常结束（考核完成或登录失败需人工）；
+    浏览器被意外关闭时抛出异常，由 main 捕获后自动重启。"""
     with sync_playwright() as p:
         # 有头模式：真实浏览器窗口，平台计时/焦点检测全部正常
         browser = p.chromium.launch(headless=False)
@@ -386,11 +403,11 @@ def main():
 
         if not ensure_login(page, ctx, cred):
             browser.close()
-            return
+            return True  # 登录失败需人工处理，不自动重启
         if not goto_course(page, cred):
             log("进入课程失败，请重新运行")
             browser.close()
-            return
+            return True
 
         done_sections = 0
         while True:  # ---- 外层循环：一节一节推进 ----
@@ -458,6 +475,7 @@ def main():
 
         browser.close()
         log("本次学习结束")
+        return True
 
 
 if __name__ == "__main__":
