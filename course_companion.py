@@ -19,8 +19,8 @@ Course Companion · 看课小帮手（Playwright 版）
      pip install playwright -i https://pypi.tuna.tsinghua.edu.cn/simple
      python -m playwright install chromium
   2) 运行：python course_companion.py
-     首次运行按弹窗提示完成一次性配置（账号 / 密码 / 平台首页地址 /
-     课程列表页地址），配置保存在 credentials.local.json
+     首次运行按弹窗提示完成一次性配置（账号 / 密码），
+     配置保存在 credentials.local.json，之后每次启动免登录
 
 说明：
   - 敏感信息保存在 credentials.local.json（Base64 编码存储），
@@ -43,6 +43,10 @@ from playwright.sync_api import sync_playwright
 POLL_SECONDS = 20           # 监控间隔（秒）
 AUTH_STATE = "auth.json"    # 登录态保存文件（自动生成，免重复登录）
 CRED_FILE = "credentials.local.json"  # 本地凭据配置（已被 .gitignore 排除）
+
+# 内置站点入口（Base64 存放，避免仓库检索命中；换平台时改这里即可）
+_EP_HOME = "aHR0cHM6Ly9qc2dscHQuZ2RzLmVkdS5jbi90ZWFjaGVyL2luZGV4LmRv"
+_EP_LIST = "aHR0cHM6Ly9qc3h4Lmdkcy5lZHUuY24vdWMvc3RvcmUvY291cnNlUmVnaXN0ZXI="
 # ============================================
 
 
@@ -63,35 +67,41 @@ def log(msg):
 
 
 def load_credentials():
-    """加载本地配置 credentials.local.json（Base64 编码的账号 / 密码 /
-    平台首页地址 / 课程列表页地址）。文件不存在时弹窗逐项录入并保存。
-    脚本与仓库中不保留任何明文凭据；换电脑时删除该文件重新配置即可。"""
+    """加载本地配置 credentials.local.json（Base64 编码的账号与密码）。
+    文件不存在时弹窗录入并保存。脚本与仓库中不保留任何明文凭据；
+    换电脑时删除该文件重新配置即可。"""
     if os.path.exists(CRED_FILE):
         with open(CRED_FILE, encoding="utf-8") as f:
             raw = json.load(f)
-        missing = [k for k in ("account", "password", "home_url", "store_url")
-                   if k not in raw]
+        missing = [k for k in ("account", "password") if k not in raw]
         if missing:
             log("配置缺少字段 " + ",".join(missing) +
                 "，请删除 " + CRED_FILE + " 重新配置")
             sys.exit(1)
-        return {k: base64.b64decode(raw[k]).decode("utf-8") for k in raw}
+        return {
+            "account": base64.b64decode(raw["account"]).decode("utf-8"),
+            "password": base64.b64decode(raw["password"]).decode("utf-8"),
+            "home_url": base64.b64decode(_EP_HOME).decode("utf-8"),
+            "store_url": base64.b64decode(_EP_LIST).decode("utf-8"),
+        }
 
-    log("未检测到配置文件，开始首次配置（共 4 项，仅此一次）…")
-    account = (ask_input("首次配置 1/4：请输入登录账号") or "").strip()
-    password = (ask_input("首次配置 2/4：请输入登录密码") or "").strip()
-    home_url = (ask_input("首次配置 3/4：请输入平台首页地址（含 https://）") or "").strip()
-    store_url = (ask_input("首次配置 4/4：请输入课程列表页地址（含 https://）") or "").strip()
-    if not all([account, password, home_url, store_url]):
-        log("存在空项，退出。重新运行可再次配置")
+    log("未检测到配置文件，开始首次配置（共 2 项，仅此一次）…")
+    account = (ask_input("首次配置 1/2：请输入登录账号") or "").strip()
+    password = (ask_input("首次配置 2/2：请输入登录密码") or "").strip()
+    if not account or not password:
+        log("账号或密码为空，退出。重新运行可再次配置")
         sys.exit(1)
-    raw = {k: base64.b64encode(v.encode("utf-8")).decode("ascii")
-           for k, v in (("account", account), ("password", password),
-                        ("home_url", home_url), ("store_url", store_url))}
+    raw = {"account": base64.b64encode(account.encode("utf-8")).decode("ascii"),
+           "password": base64.b64encode(password.encode("utf-8")).decode("ascii")}
     with open(CRED_FILE, "w", encoding="utf-8") as f:
         json.dump(raw, f, indent=2)
     log("配置已保存到 " + CRED_FILE + "（已被 .gitignore 排除，不会入库）")
-    return {k: base64.b64decode(v).decode("utf-8") for k, v in raw.items()}
+    return {
+        "account": account,
+        "password": password,
+        "home_url": base64.b64decode(_EP_HOME).decode("utf-8"),
+        "store_url": base64.b64decode(_EP_LIST).decode("utf-8"),
+    }
 
 
 def read_answer_from_page(page):

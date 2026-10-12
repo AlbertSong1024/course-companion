@@ -1,80 +1,93 @@
-# Course Companion
+<div align="center">
 
-> A Playwright-based auto-study assistant for online video courses: automatic login, keep videos playing, answer in-video questions, and advance through lessons automatically.
->
-> 中文文档：[README.md](README.md)
+# 🎬 Course Companion
 
-## What is this
+**Hand the most tedious clicking of online video courses to a browser that actually behaves.**
 
-A desktop assistant that hands the repetitive parts of watching online video courses to a program. It drives a real (headed) browser window and mimics human interaction:
+[![Python](https://img.shields.io/badge/Python-3.9%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![Playwright](https://img.shields.io/badge/Powered_by-Playwright-2EAD33?logo=playwright&logoColor=white)](https://playwright.dev/python/)
+[![Platform](https://img.shields.io/badge/Platform-Windows%2010%2F11-0078D6?logo=windows11&logoColor=white)](https://www.microsoft.com/windows)
+[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-- **Auto login** — credentials are filled automatically; the CAPTCHA image pops up automatically, you just type the digits you see, and the script fills it in and submits
-- **Keep playing** — resumes paused videos automatically; auto-reloads on "video load error" (progress is stored server-side, nothing is lost)
-- **In-video questions** — when a quiz pops up mid-video, the built-in reference answer is read from the page itself and submitted with real mouse events; if no answer can be parsed, it waits for you instead of guessing
-- **Lesson advancing** — automatically moves to the next lesson once the required watch time is reached; completed lessons are skipped
-- **Jump to first unfinished** — locates the first unfinished lesson directly from the progress page, no need to click through completed ones
-- **Session renewal** — cookies are refreshed and saved periodically, so the session rarely expires during long runs
+*You keep the window in the foreground. It handles everything else.*
 
-The assistant stops automatically when it reaches exams or assessments that must be completed by the user.
+[中文文档](README.md) · [English](#-features)
 
-## Requirements
+</div>
 
-- Windows 10/11 (uses `os.startfile` to open the CAPTCHA image)
-- Python 3.9+
+---
 
-## Installation
+## 🎯 Features
+
+A 30-credit online course means 32 videos of: press play, wait for the pop-up quiz, answer it, click next… **With this companion, the only thing left for you is keeping the browser window on screen.**
+
+| 🎁 Capability | ✨ Experience |
+|---------------|---------------|
+| 🔐 **Auto login** | Credentials filled automatically; the CAPTCHA image pops up — just type 4 digits and it submits for you |
+| ▶️ **Keep playing** | Paused? Auto-resumed. "Load error"? Auto-reloaded. Progress lives server-side, nothing lost |
+| 💬 **In-video questions** | The moment a quiz pops up, the page's built-in reference answer is read and submitted; if parsing fails it waits for you — never guesses |
+| ⏭️ **Lesson advancing** | Auto-jumps to the next lesson when time is met; completed lessons are skipped instantly |
+| 🎯 **Jump to first unfinished** | No clicking through lessons — lands directly on the first unfinished one via the progress page |
+| 🔄 **Session renewal** | Cookies refreshed periodically; long runs almost never expire — and if they do, auto re-login kicks in |
+
+> 🛑 When it reaches an **exam/assessment** that must be done by a human, it politely stops.
+
+## 🚀 Quick start
 
 ```bash
+# ① Install dependencies
 pip install playwright
 python -m playwright install chromium
-```
 
-## Quick start
-
-```bash
+# ② Run
 python course_companion.py
+
+# ③ Fill in account & password in the dialogs (one-time only), then go do something else
 ```
 
-On the first run, 4 dialog boxes appear (one-time only):
+## ⚙️ How it works
 
-| # | Field | Example |
-|---|-------|---------|
-| 1 | Login account | phone number / student ID |
-| 2 | Login password | your password |
-| 3 | Platform home URL | `https://xxx.edu.cn/home` |
-| 4 | Course list URL | `https://xxx.edu.cn/courses` |
+```mermaid
+flowchart LR
+    A[🔑 Auto login] --> B[🎯 Jump to first<br>unfinished lesson]
+    B --> C{Poll every 20s}
+    C -->|Quiz pops| D[📖 Read built-in answer<br>real mouse clicks]
+    C -->|Video paused| E[▶️ Resume playing]
+    C -->|Load error| F[🔄 Auto reload]
+    C -->|Time met| G[⏭️ Next lesson]
+    D --> C
+    E --> C
+    F --> C
+    G --> B
+```
 
-The configuration is saved to `credentials.local.json` (Base64 encoded). Subsequent runs skip login entirely.
+- **Trusted browser events** — Playwright drives Chromium in headed mode; every click is a full mouse press-release sequence, indistinguishable from a human
+- **Multi-strategy answer parsing** — the page's embedded script obfuscates some characters; three anchor strategies extract answers reliably
+- **Session persistence** — cookies saved via Playwright `storage_state`, renewed after every completed lesson
 
-## Configuration files
+## 📁 Files
 
 | File | Purpose | Committed |
-|------|---------|-----------|
-| `credentials.local.json` | account / password / platform URLs (Base64) | ❌ excluded via `.gitignore` |
-| `credentials.local.json.example` | template with example values | ✅ |
-| `auth.json` | login session cookies (auto-generated) | ❌ excluded via `.gitignore` |
+|------|:----:|:----------:|
+| `course_companion.py` | Main program | ✅ |
+| `credentials.local.json` | Your account & password (Base64) | ⛔ excluded via `.gitignore` |
+| `credentials.local.json.example` | Template | ✅ |
+| `auth.json` | Login session (auto-generated) | ⛔ excluded via `.gitignore` |
 
-- Changed password or account: delete `credentials.local.json` and run again
-- New computer: copy the project, delete `credentials.local.json`, reconfigure
+> 💡 **New computer?** Copy the project → delete `credentials.local.json` → run and reconfigure. 30 seconds.
+> 💡 **Changed password?** Same — delete the config file and run again.
 
-## Notes
+## 📌 Notes
 
-1. **Keep the window in the foreground** — some platforms pause timers on background tabs; you may resize the window but do not minimize it
-2. **Do not run multiple instances** — most platforms count only one watch session per account
-3. **CAPTCHA** — only needed after a session expires (type 4 digits, ~10 seconds); session renewal keeps this rare
-4. **Exams** — the assistant stops and hands over to you
+1. 🖥️ **Keep the window foreground** — resizing is fine, minimizing is not. Some platforms pause timers on background tabs
+2. 🚫 **No multiple instances** — most platforms count only one watch session per account
+3. 🔢 **CAPTCHA** — only appears after a session expires (~10 seconds of typing); session renewal keeps it rare
+4. 🧑‍💼 **Exams are yours** — the assistant never touches assessments
 
-## How it works
+## 📄 Disclaimer
 
-- Playwright drives Chromium in headed mode; every click is a full, trusted mouse-event sequence
-- In-video quiz answers are extracted from the page's own embedded script via a multi-strategy parser
-- Page state (progress text / playback state / dialogs) is polled every 20 seconds
-- The session persists via Playwright `storage_state`, renewed after each completed lesson
+This project is for **learning and personal productivity** only. Read and follow the terms of service of the platform you use; you are responsible for your own account. Do not use it for commercial proxy-learning services.
 
-## Disclaimer
+## 📜 License
 
-This project is for learning and personal productivity only. Read and follow the terms of service of the platform you use; you are responsible for your own account. Do not use it for commercial proxy-learning services.
-
-## License
-
-MIT
+[MIT](LICENSE) © 2026
