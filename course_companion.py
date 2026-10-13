@@ -11,8 +11,10 @@ Course Companion · 看课小帮手（Playwright 版）
   3) 持续监控：视频播放状态 / 课中问题 / 观看进度 / 掉线 / 视频加载出错
   4) 课中问题：自动读取页面内置的参考答案，并以真实鼠标事件点击作答
   5) 观看达标自动进入下一课时，循环推进直到全部完成
-  6) 到达需要本人完成的考核/测验环节自动停下
+   6) 考核环节：提供 answers.json（{题号: [ChoiceX,...]}）时自动作答交卷；
+      无答案表则停下等待本人 10 分钟内人工完成（脚本自动检测并继续）
   7) 视频加载出错自动刷新恢复；观看进度保存在服务端，刷新不丢失
+   8)  交卷后自动到「学习进度」页核对完成项数、进度百分比与考核成绩
 
 快速开始：
   1) 安装 Python 3.9+，然后安装依赖（国内镜像加速）：
@@ -47,6 +49,9 @@ CRED_FILE = "credentials.local.json"  # 本地凭据配置（已被 .gitignore �
 # 内置站点入口（Base64 存放，避免仓库检索命中；换平台时改这里即可）
 _EP_HOME = "aHR0cHM6Ly9qc2dscHQuZ2RzLmVkdS5jbi90ZWFjaGVyL2luZGV4LmRv"
 _EP_LIST = "aHR0cHM6Ly9qc3h4Lmdkcy5lZHUuY24vdWMvc3RvcmUvY291cnNlUmVnaXN0ZXI="
+# 考核卷答案文件（可选）：JSON 字典 {题号: [ChoiceX,...]}。
+# 提供后考核环节自动作答；不提供（或某题缺失）则该题留给人工，脚本等待 10 分钟。
+ANSWER_FILE = "answers.json"
 # ============================================
 
 
@@ -263,6 +268,115 @@ def fix_video_error(page):
         pass
 
 
+def load_answers():
+    """加载考核答案表（answers.json：{"1": ["Choice1"], ...}）。
+    文件不存在/损坏时返回空字典，考核环节将等待人工作答。"""
+    if os.path.exists(ANSWER_FILE):
+        try:
+            with open(ANSWER_FILE, encoding="utf-8") as f:
+                raw = json.load(f)
+            # key 统一转成 int，value 统一转成 list[str]
+            out = {}
+            for k, v in raw.items():
+                out[int(k)] = v if isinstance(v, list) else [v]
+            log("已加载考核答案 %d 题（%s）" % (len(out), ANSWER_FILE))
+            return out
+        except Exception as e:
+            log("答案文件解析失败，转人工作答：" + str(e)[:80])
+    else:
+        log("未找到答案文件 %s，考核环节将等待人工作答" % ANSWER_FILE)
+    return {}
+
+
+def handle_assessment(page):
+    """考核/测验环节（#testForm 存在）：按答案表逐题作答并交卷。
+    答案表覆盖不全时等待人工（最长 10 分钟）。
+    返回 True 表示交卷成功（或已人工完成）；False 表示会话内未完成。"""
+    if page.locator("#testForm").count() == 0:
+        return True  # 不是考核页
+    items = page.locator("#topicList .m-topic-item")
+    qcount = items.count()
+    log("进入考核环节，共 %d 题" % qcount)
+
+    answers = load_answers()
+    all_covered = all((i + 1) in answers for i in range(qcount))
+    if not all_covered:
+        missing = [i + 1 for i in range(qcount) if (i + 1) not in answers]
+        log("答案表缺少第 %s 题，等待人工作答（10 分钟内完成，脚本自动检测）…"
+            % ",".join(map(str, missing[:8])) + ("…" if len(missing) > 8 else ""))
+        for _ in range(60):
+            page.wait_for_timeout(10000)
+            if page.locator("#testForm").count() == 0:
+                log("人工作业完成（考核页已关闭），继续")
+                return True
+            # 人工可能已交卷：进度提示变化
+            try:
+                if "您已完成" in page.inner_text(".g-study-prompt", timeout=500):
+                    log("检测到考核已完成提示")
+                    return True
+            except Exception:
+                pass
+        return False
+
+    # 逐题勾选：多选题 checkbox / 单选判断题 radio，点击 label 联动 strong.on
+    for i in range(qcount):
+        no = i + 1
+        wanted = answers[no]
+        q = items.nth(i)
+        for choice in wanted:
+            lab = q.locator("label:has(input[value=%s])" % choice).first
+            try:
+                lab.click(timeout=5000)
+                page.wait_for_timeout(200)
+            except Exception as e:
+                log("第 %d 题 %s 点击异常，尝试直接勾选：%s" % (no, choice, str(e)[:60]))
+                try:
+                    q.locator("input[value=%s]" % choice).first.check(timeout=3000)
+                except Exception:
+                    log("第 %d 题 %s 勾选失败，请人工检查！" % (no, choice))
+        sel = q.locator("strong.on").count()
+        log("第 %2d 题 已选 %s → %d/%d %s" % (
+            no, ",".join(wanted), sel, len(wanted),
+            "OK" if sel == len(wanted) else "不一致，请人工复核"))
+    log("全部 %d 题作答完成，交卷" % qcount)
+
+    # 交卷：打开确认弹窗 → 同步 ajax 提交（finishTest 内 async:!1，evaluate 会阻塞数秒）
+    page.evaluate("submitTest()")
+    page.wait_for_timeout(800)
+    try:
+        page.evaluate("finishTest()")
+    except Exception as e:
+        log("交卷调用异常：" + str(e)[:80])
+        return False
+    page.wait_for_timeout(5000)
+
+    # 验证：考核页消失（页面被替换为结果页/课程页）= 提交成功
+    if page.locator("#testForm").count() == 0:
+        log("考核已提交，页面已切换。成绩见「学习进度」页")
+        # 顺带跳到学习进度页核对状态
+        try:
+            page.locator("a", has_text="学习进度").first.click(timeout=5000)
+            page.wait_for_timeout(3000)
+            page.screenshot(path="progress_after.png")
+            body = re.sub(r"\s+", " ", page.inner_text("body", timeout=2000))
+            m = re.search(
+                r"(\d+)\s*/\s*(\d+)\s*项活动.*?学习进度\s*(\d+(?:\.\d+)?)\s*%.*?考核成绩：\s*(\d+)\s*分",
+                body)
+            if m:
+                log("课程状态：完成 %s/%s 项活动，进度 %s%%，考核 %s 分" % m.groups())
+                log("及格要求：学习进度 100%% 且考核 ≥ 60 分 → "
+                    + ("已及格 ✓" if m.group(2) == m.group(1)
+                       and m.group(3).startswith("100") and int(m.group(4)) >= 60
+                       else "未达及格，请查看平台提示"))
+            else:
+                log("学习进度页已保存 progress_after.png，请人工核对")
+        except Exception as e:
+            log("核对进度页异常：" + str(e)[:60])
+        return True
+    log("交卷后考核页仍在（提交可能被拒或超时），请人工处理")
+    return False
+
+
 def goto_course(page, cred):
     """进入课程学习页：平台首页 → 点击课程入口（完成单点登录）
     → 课程列表页 → 开始学习 → 通过「学习进度」页直达第一个未完成课时。
@@ -414,12 +528,30 @@ def _run_session(cred):
             activity = current_activity(page)
             log("当前课时：《%s》" % activity)
 
-            # 考核/测验环节：页面没有视频也没有进度条 → 停下（需本人完成）
+            # 收尾判定：页面无视频也无进度文案时，检查「学习进度」页是否还有
+            # 未完成活动。已全部完成 → 课程结束；仍在考核页 → 走自动交卷
+            if (not activity and page.locator("video").count() == 0
+                    and read_progress(page) is None):
+                try:
+                    page.locator("a", has_text="学习进度").first.click(timeout=5000)
+                    page.wait_for_timeout(3000)
+                    if page.locator("tr", has_text="未完成").count() == 0:
+                        page.screenshot(path="progress_after.png")
+                        log("学习进度页已无未完成活动——课程已全部完成，结束")
+                        break
+                except Exception:
+                    pass
+                log("回到默认页继续")
+
+            # 考核/测验环节：有答案表则自动作答交卷；无答案表停下等人工
             if "考核" in activity or (
                 read_progress(page) is None
                 and page.locator("video").count() == 0
             ):
-                log("已进入考核/测验环节，助手停止，请本人完成！")
+                if handle_assessment(page):
+                    log("考核环节已完成，学习结束")
+                else:
+                    log("考核环节未在本次会话完成，请重新运行或人工处理！")
                 break
 
             none_rounds = 0  # 连续读不到进度条的轮数
@@ -455,6 +587,13 @@ def _run_session(cred):
                         # 只要助手持续运行，会话保持新鲜，几乎不会掉线
                         try:
                             ctx.storage_state(path=AUTH_STATE)
+                        except Exception:
+                            pass
+                        # 收尾确认：若下一节就是考核环节（#testForm 直接出现在
+                        # 课程页上），立即回外层走考核交卷，不空等一轮巡检
+                        try:
+                            if page.locator("#testForm").count() > 0:
+                                log("下一节为考核环节，直接交卷")
                         except Exception:
                             pass
                         break  # 回外层开始新一节

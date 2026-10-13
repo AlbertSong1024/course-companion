@@ -1,6 +1,13 @@
 # 本地凭据与运行时文件，切勿提交到仓库
 credentials.local.json
 auth.json
+answers.json
+questions.json
 captcha.png
+assessed_filled.png
+assessed_result.png
+progress_after.png
+progress_after.html
+probe_*.html
 __pycache__/
 *.pyc
