@@ -11,3 +11,7 @@ progress_after.html
 probe_*.html
 __pycache__/
 *.pyc
+# PyInstaller 构建产物（不进仓库，需重新构建）
+build/
+dist/
+*.spec

@@ -32,7 +32,28 @@
 | 🎯 **直达定位** | 不逐节翻找——从学习进度页一步跳到第一个未完成的课时 |
 | 🔄 **会话续期** | Cookie 定期续存，挂一下午几乎不掉线；真掉线了自动重连 |
 
-## 🚀 三步上手
+## 📦 免安装版（推荐：下载即用）
+
+不想配 Python 环境？直接下载/使用**单一可执行文件**，双击/一键运行，首次自动下载浏览器内核，弹窗填账号密码即可：
+
+- **Windows**：`course_companion.exe` → 双击运行
+- **macOS / Linux**：`course_companion` → `chmod +x` 后 `./course_companion`
+
+> 各平台产物需在对应平台上用 `python build_exe.py` 构建（产物平台 = 构建机平台）。
+> 内核（Chromium ~150MB）首跑联网下载一次，之后免下载；账号密码首跑弹窗录入并保存，之后免登录。
+
+## 🛠️ 构建可执行文件（给分发者）
+
+```bash
+pip install pyinstaller playwright        # 构建机依赖
+python build_exe.py                        # 生成 dist/course_companion[.exe]
+```
+
+- 产物为 PyInstaller **onefile** 模式（~50MB，不含浏览器内核）；
+- `course_companion_gui.py` 是一键入口：先自检/下载 Chromium 内核，再调用主流程；
+- 三平台分发：在三台构建机（Windows / macOS / Linux）上各跑一次 `python build_exe.py`，把三个产物分别放入 `releases/` 分发即可。
+
+## 🚀 源码运行（需 Python）
 
 ```bash
 # ① 安装依赖（国内镜像加速）
@@ -83,6 +104,8 @@ flowchart LR
 | `answers.json` | 考核答案表（题号 → `ChoiceX` 列表；没有则考核环节等你人工） | 按需 |
 | `questions.json` | 导出试卷用（脚本运行时可选生成，供整理答案参考） | 按需 |
 | `progress_after.png` | 交卷后学习进度页截图（自动核对存档） | ⛔ 运行时生成 |
+| `course_companion_gui.py` | 一键运行入口（自检内核 + 调主流程，供 PyInstaller 打包） | ✅ |
+| `build_exe.py` | PyInstaller 构建脚本（生成各平台单文件可执行） | ✅ |
 
 ### 📝 考核答案表怎么填
 
