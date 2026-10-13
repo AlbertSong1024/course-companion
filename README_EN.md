@@ -30,8 +30,6 @@ A 30-credit online course means 32 videos of: press play, wait for the pop-up qu
 | 🎯 **Jump to first unfinished** | No clicking through lessons — lands directly on the first unfinished one via the progress page |
 | 🔄 **Session renewal** | Cookies refreshed periodically; long runs almost never expire — and if they do, auto re-login kicks in |
 
-> 🛑 When it reaches an **exam/assessment** that must be done by a human, it politely stops.
-
 ## 🚀 Quick start
 
 ```bash
@@ -82,7 +80,6 @@ flowchart LR
 1. 🖥️ **Keep the window foreground** — resizing is fine, minimizing is not. Some platforms pause timers on background tabs
 2. 🚫 **No multiple instances** — most platforms count only one watch session per account
 3. 🔢 **CAPTCHA** — only appears after a session expires (~10 seconds of typing); session renewal keeps it rare
-4. 🧑‍💼 **Exams are yours** — the assistant never touches assessments
 
 ## 📄 Disclaimer
 
