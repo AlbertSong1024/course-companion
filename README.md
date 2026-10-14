@@ -40,6 +40,8 @@
 2. 弹出 **GUI 登录窗**：账号、密码、验证码图片（窗内直接显示）、验证码输入框、「登 录」按钮——输完点登录即全自动执行看课 / 课中应答 / 考核交卷 / 进度核对；
 3. 窗口里的 **「⚙ LLM 设置」按钮随时可点**（登录前、登录后都常驻）：填 base_url / model / api_key 保存即生效，也可一键清除 LLM 配置回纯静态答案表模式。
 
+**🚀 便携版（推荐，内核已内置免下载）**：[course_companion_portable_v1.0.0.zip](https://github.com/AlbertSong1024/course-companion/releases/tag/v1.0.0)——exe + 谷歌浏览器内核 + 答案表全打包，解压到任意目录双击 `course_companion\course_companion.exe` 即用，**首跑不再等待内核下载**（单文件版首跑需 1-2 分钟下载内核，便携版跳过此步直接进登录窗）。
+
 - **Windows**：[v1.0.0 安装包下载](https://github.com/AlbertSong1024/course-companion/releases/tag/v1.0.0)（`course_companion.exe`，68 MB，附 `SHA256` 校验文件）→ 双击运行（无 cmd 黑窗；日志看窗口「运行日志」区，完整存档在程序目录 `run.log`）
 - **macOS / Linux**：`course_companion` → `chmod +x` 后 `./course_companion`
 
