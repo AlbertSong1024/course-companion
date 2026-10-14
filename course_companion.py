@@ -365,6 +365,34 @@ def current_activity(page):
         return ""
 
 
+def passport_required(page):
+    """检测平台「绑定通行证」拦截：未绑定通行证的账号会弹
+    「用户未绑定通行证,是否前往绑定?」弹窗（挡住后续流程）。
+    返回 (是否被拦截, 拦截位置说明)。只认页面文本证据——
+    不凭 URL 判定，避免把普通登录页(goLogin)误伤。"""
+    try:
+        body = page.inner_text("body", timeout=2000)
+    except Exception:
+        return False, ""
+    if "未绑定通行证" in body:
+        return True, "页面出现「未绑定通行证」弹窗"
+    if "是否前往绑定" in body:
+        return True, "页面出现「是否前往绑定」弹窗"
+    return False, ""
+
+
+def report_passport_required(page, where):
+    """输出「先绑定通行证再使用」提示 + 存证据截图。返回 False（调用方据此停止）。"""
+    log("!! 检测到平台「绑定通行证」拦截（%s）" % where)
+    log("!! 该账号尚未绑定通行证——请先绑定通行证，之后再使用本工具")
+    try:
+        page.screenshot(path="passport_required.png")
+        log("已保存截图 passport_required.png")
+    except Exception:
+        pass
+    return False
+
+
 def ensure_playing(page):
     """确保视频处于播放状态（真实点击 + 空格键双保险）。"""
     try:
@@ -566,6 +594,11 @@ def goto_course(page, cred):
     page.wait_for_timeout(2000)
     if "login" in page.url:
         return False
+    # 「绑定通行证」拦截检测（未绑定的账号会被平台弹窗挡住）
+    need_bind, where = passport_required(page)
+    if need_bind:
+        report_passport_required(page, where)
+        return False
     # 2. 点击导航菜单里的课程入口（触发 SSO 跳转到课程列表页）
     try:
         page.locator("a", has_text="公需课").first.click(timeout=6000)
@@ -576,6 +609,11 @@ def goto_course(page, cred):
     if "courseRegister" not in page.url:
         page.goto(cred["store_url"], wait_until="domcontentloaded")
         page.wait_for_timeout(3000)
+    # 进课程列表途中也可能弹「绑定通行证」拦截
+    need_bind, where = passport_required(page)
+    if need_bind:
+        report_passport_required(page, where)
+        return False
     # 4. 等待「开始学习」出现（最多 10 秒）
     try:
         page.locator("a", has_text="开始学习").first.wait_for(timeout=10000)
@@ -708,6 +746,12 @@ def _run_session(cred):
 
         done_sections = 0
         while True:  # ---- 外层循环：一节一节推进 ----
+            # 「绑定通行证」拦截检测（在完成判定之前——未绑定账号会被踢到
+            # 登录页，绝不能被误判成「课程已全部完成」）
+            need_bind, where = passport_required(page)
+            if need_bind:
+                report_passport_required(page, where)
+                break  # 停止本次会话：先绑定通行证，之后再使用
             activity = current_activity(page)
             log("当前课时：《%s》" % activity)
 
@@ -809,6 +853,12 @@ def run_learning_flow(page, ctx, cred):
         return False
 
     while True:  # ---- 外层循环：一节一节推进 ----
+        # 「绑定通行证」拦截检测（在完成判定之前，防止被踢到登录页后
+        # 误判成「课程已全部完成」的假完成）
+        need_bind, where = passport_required(page)
+        if need_bind:
+            report_passport_required(page, where)
+            return False  # 停止：请先绑定通行证，之后再使用
         activity = current_activity(page)
         log("当前课时：《%s》" % activity)
 
