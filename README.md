@@ -58,7 +58,7 @@ PyInstaller 单文件 exe 标记为"不常见/有风险"；通常随发布时间
 certutil -hashfile course_companion.exe SHA256
 ```
 
-输出应与 `.sha256` 文件内容一致（v1.0.0 为 `3847924217835bccb7926da8abb6b75e0a9f7d82dd97824b824aa60ec22a6455`）；
+输出应与 `.sha256` 文件内容一致（v1.0.0 最新构建为 `7548914a0517060dc90c528a8126abf7208dff1dafd02dcf2cbd7432c687a9ce`）；
 一致即文件与本仓库构建产物完全相同，可放心运行。
 
 逐级放行方法（按你遇到的提示选一种）：
