@@ -34,9 +34,13 @@
 
 ## 📦 免安装版（推荐：下载即用）
 
-不想配 Python 环境？直接下载/使用**单一可执行文件**，双击/一键运行，首次自动下载浏览器内核，弹窗填账号密码即可：
+不想配 Python 环境？直接下载/使用**单一可执行文件**，双击运行：
 
-- **Windows**：`course_companion.exe` → 双击运行
+1. 首次自动下载浏览器内核（**默认走 npmmirror 国内镜像**，进度实时显示在**窗口内「运行日志」区**（完整日志同时存程序目录 `run.log`），约 1-2 分钟，弱网中断会**自动重试 3 次并清理残留锁**，之后免下载；3 次仍失败时删掉程序旁 `ms-playwright` 文件夹重跑，或设 `PLAYWRIGHT_DOWNLOAD_HOST=https://cdn.playwright.dev` 换官方源）；
+2. 弹出 **GUI 登录窗**：账号、密码、验证码图片（窗内直接显示）、验证码输入框、「登 录」按钮——输完点登录即全自动执行看课 / 课中应答 / 考核交卷 / 进度核对；
+3. 窗口里的 **「⚙ LLM 设置」按钮随时可点**（登录前、登录后都常驻）：填 base_url / model / api_key 保存即生效，也可一键清除 LLM 配置回纯静态答案表模式。
+
+- **Windows**：`course_companion.exe` → 双击运行（无 cmd 黑窗；日志看窗口「运行日志」区，完整存档在程序目录 `run.log`）
 - **macOS / Linux**：`course_companion` → `chmod +x` 后 `./course_companion`
 
 > 各平台产物需在对应平台上用 `python build_exe.py` 构建（产物平台 = 构建机平台）。
@@ -45,12 +49,13 @@
 ## 🛠️ 构建可执行文件（给分发者）
 
 ```bash
-pip install pyinstaller playwright        # 构建机依赖
-python build_exe.py                        # 生成 dist/course_companion[.exe]
+pip install pyinstaller playwright pillow   # 构建机依赖
+python build_exe.py                         # 生成 dist/course_companion[.exe]
 ```
 
-- 产物为 PyInstaller **onefile** 模式（~50MB，不含浏览器内核）；
-- `course_companion_gui.py` 是一键入口：先自检/下载 Chromium 内核，再调用主流程；
+- 产物为 PyInstaller **onefile** 模式（~55MB，不含浏览器内核）；
+- `course_companion_gui.py` 是一键入口：自检/下载 Chromium 内核 → GUI 登录窗 → 全流程；
+- 构建完成会把 `answers.json` / `questions.json` 一并附到 `dist/`（有才附）；
 - 三平台分发：在三台构建机（Windows / macOS / Linux）上各跑一次 `python build_exe.py`，把三个产物分别放入 `releases/` 分发即可。
 
 ## 🚀 源码运行（需 Python）
@@ -103,9 +108,14 @@ flowchart LR
 | `auth.json` | 登录会话（自动生成） | ⛔ `.gitignore` 排除 |
 | `answers.json` | 考核答案表（题号 → `ChoiceX` 列表；没有则考核环节等你人工） | 按需 |
 | `questions.json` | 导出试卷用（脚本运行时可选生成，供整理答案参考） | 按需 |
+| `llm.local.json` | LLM 答题配置（可选；配置后考核环节自动校验/补全答案表） | ⛔ `.gitignore` 排除 |
 | `progress_after.png` | 交卷后学习进度页截图（自动核对存档） | ⛔ 运行时生成 |
+| `run.log` | exe 每次运行的完整日志（窗口日志区的存档） | ⛔ `.gitignore` 排除 |
 | `course_companion_gui.py` | 一键运行入口（自检内核 + 调主流程，供 PyInstaller 打包） | ✅ |
+| `course_companion_login.py` | GUI 登录窗 + 浏览器线程（登录/看课/考核编排） | ✅ |
+| `llm_answerer.py` | LLM 答题模块（纯 urllib，OpenAI 兼容接口） | ✅ |
 | `build_exe.py` | PyInstaller 构建脚本（生成各平台单文件可执行） | ✅ |
+| `_verify_mode1.py` / `_verify_mode1_live.py` / `_verify_login_fill.py` / `_verify_llm_gui.py` / `_exe_e2e.py` | 开发验证脚本（离线自检 / 真实浏览器冒烟 / 登录回填 / GUI日志+LLM设置全链路 / exe 端到端） | ✅ |
 
 ### 📝 考核答案表怎么填
 
@@ -122,6 +132,33 @@ flowchart LR
 ```
 
 > 答案可以人工整理，也可以让 LLM 基于课程要点生成一份初稿再人工核对。脚本对缺失/错位的题只会提示，不会乱填。
+
+### 🤖 LLM 自动答题（可选，默认关闭）
+
+两种方式共用同一份 `llm.local.json`，配置互相通用；配置**实时生效**——运行中保存，下一题立即用上，无需重启。
+
+- **方式一（源码 `course_companion.py`）**：每次启动先弹「是否配置 LLM 自动答题？」——**纯看视频直接点跳过**，不写任何文件、不影响后续流程；想用 LLM 校验/补答答案表则点确定，逐项录入（留空=保持默认）。已配置过也每次启动都问，可随时改/删。
+- **方式二（exe / GUI）**：登录窗里常驻 **「⚙ LLM 设置」按钮**（登录前、登录后都可点）——弹窗填 base_url / model / api_key，点保存立即生效；「清除 LLM 配置」一键回到纯静态答案表模式。窗口状态栏实时显示「LLM 答题：已启用 / 未启用」。
+
+考核环节的行为：
+
+- **没配 LLM / 占位符 key**：100% 走静态 `answers.json`（原行为）；
+- **配了真 key**：到考核页先逐题调 LLM 校验/补全 `answers.json`（LLM 答案直接修正并写回，之后同一份卷子不再重复调用），再勾选交卷；LLM 失败/不确定 → 静默保留原状。
+
+手动方式（不想弹窗时）：直接编辑 `llm.local.json`，格式：
+
+```json
+{
+  "base_url": "https://api.deepseek.com",
+  "api_key":  "sk-xxxxxxxx",
+  "model":    "deepseek-chat"
+}
+```
+
+- 题目来源：优先 `questions.json` 题面，逐题发给 LLM；
+- 零新增依赖：纯 `urllib`，兼容任何 OpenAI 格式 `/chat/completions`（DeepSeek、本地 vLLM/Ollama 等，改 `base_url` 即可）。
+
+> ⚠️ LLM 答案仍可能错：交卷后脚本会自动到「学习进度」页核对考核成绩，不及格时请人工复核 `answers.json` 里被 LLM 校正过的题。
 
 > 💡 **换电脑？** 拷走项目 → 删掉 `credentials.local.json` → 重新运行配置即可，30 秒搞定。
 > 💡 **改密码？** 同上，删除配置文件重来。

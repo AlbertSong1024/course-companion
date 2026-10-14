@@ -41,6 +41,20 @@ import json
 import base64
 from playwright.sync_api import sync_playwright
 
+
+def _harden_console():
+    """同 GUI 入口：stdout/stderr 遇 GBK 编不了的字符降级为 ?，绝不 print 崩溃。"""
+    for name in ("stdout", "stderr"):
+        try:
+            st = getattr(sys, name, None)
+            if st is not None and hasattr(st, "reconfigure"):
+                st.reconfigure(errors="replace")
+        except Exception:
+            pass
+
+
+_harden_console()
+
 # ================== 配置区 ==================
 POLL_SECONDS = 20           # 监控间隔（秒）
 AUTH_STATE = "auth.json"    # 登录态保存文件（自动生成，免重复登录）
@@ -52,6 +66,10 @@ _EP_LIST = "aHR0cHM6Ly9qc3h4Lmdkcy5lZHUuY24vdWMvc3RvcmUvY291cnNlUmVnaXN0ZXI="
 # 考核卷答案文件（可选）：JSON 字典 {题号: [ChoiceX,...]}。
 # 提供后考核环节自动作答；不提供（或某题缺失）则该题留给人工，脚本等待 10 分钟。
 ANSWER_FILE = "answers.json"
+# LLM 配置（可选）：{base_url, api_key, model}。配置后考核环节会自动
+# 校验/补全答案（LLM 答案修正本地表并写回）；未配置时行为与原来完全一致。
+# 读取是实时的：运行中改文件或 GUI「LLM 设置」保存后，下一题立即生效。
+LLM_CONFIG_FILE = "llm.local.json"
 # ============================================
 
 
@@ -114,6 +132,116 @@ def load_credentials():
         "home_url": base64.b64decode(_EP_HOME).decode("utf-8"),
         "store_url": base64.b64decode(_EP_LIST).decode("utf-8"),
     }
+
+
+def save_credentials(account, password):
+    """把账号密码 Base64 存到程序目录的 credentials.local.json（GUI 登录用）。"""
+    raw = {"account": base64.b64encode(account.encode("utf-8")).decode("ascii"),
+           "password": base64.b64encode(password.encode("utf-8")).decode("ascii")}
+    with open(CRED_FILE, "w", encoding="utf-8") as f:
+        json.dump(raw, f, indent=2)
+    log("账号已保存到 " + CRED_FILE + "（下次运行免配置）")
+
+
+# ==================== LLM 配置（可选，随时可改） ====================
+
+def _ask_yesno(prompt):
+    """弹窗是/否询问。返回 True(是/执行) 或 False(否/跳过)。
+    取消操作 = 退出程序（调用方 sys.exit）。"""
+    import tkinter as tk
+    from tkinter import messagebox
+    root = tk.Tk()
+    root.withdraw()
+    root.attributes("-topmost", True)
+    res = messagebox.askokcancel("Course Companion · 看课小帮手",
+                                 prompt + "\n\n[确定] 是　[取消] 否/跳过",
+                                 icon="question", parent=root)
+    root.destroy()
+    if not res:
+        log("用户选择退出")
+        sys.exit(0)
+    return True
+
+
+def read_llm_config_silent():
+    """静默读 llm.local.json；字段齐全且 key 非占位符时返回 dict，否则 None。
+    占位符 key（sk-PASTE...）视为未配置，避免启动即静默 401。"""
+    if not os.path.exists(LLM_CONFIG_FILE):
+        return None
+    try:
+        with open(LLM_CONFIG_FILE, encoding="utf-8") as f:
+            cfg = json.load(f)
+        base = (cfg.get("base_url") or "").rstrip("/")
+        key = (cfg.get("api_key") or "").strip()
+        model = (cfg.get("model") or "").strip()
+        if not (base and key and model):
+            return None
+        if "PASTE" in key.upper() or key in ("", "sk-..."):
+            return None  # 占位符 → 未配置
+        return {"base_url": base, "api_key": key, "model": model}
+    except Exception:
+        return None
+
+
+def save_llm_config(base_url, api_key, model):
+    """写 llm.local.json（敏感，.gitignore 已排除）。"""
+    with open(LLM_CONFIG_FILE, "w", encoding="utf-8") as f:
+        json.dump({"base_url": base_url, "api_key": api_key,
+                   "model": model}, f, indent=2)
+    log("LLM 配置已保存到 " + LLM_CONFIG_FILE +
+        "（考核环节将启用 LLM 自动答题；之后可改此文件随时调整）")
+
+
+def remove_llm_config():
+    """删除 LLM 配置 → 回到纯静态答案表模式。"""
+    try:
+        if os.path.exists(LLM_CONFIG_FILE):
+            os.remove(LLM_CONFIG_FILE)
+        log("已删除 " + LLM_CONFIG_FILE + "（本次及以后不再使用 LLM 答题）")
+    except Exception as e:
+        log("删除 LLM 配置失败：" + str(e)[:60])
+
+
+def configure_llm_interactive():
+    """每次启动都执行：弹窗询问是否配置/更新 LLM（点「取消」=跳过）。
+    纯看视频用户直接点跳过，不写任何文件；已配置过也每次都问，
+    方便随时改 base_url/model/key。"""
+    if not _ask_yesno(
+            "是否配置 LLM 自动答题？\n"
+            "（纯看视频可点「取消」跳过；考核环节想用 LLM 校验/补答答案表则点「确定」）"):
+        log("跳过 LLM 配置（当前状态保持不变）")
+        return
+
+    cur = read_llm_config_silent()
+    if cur:
+        if not _ask_yesno(
+                "检测到已有 LLM 配置（model: " + cur["model"] + "）。\n"
+                "是否【更新】这份配置？\n"
+                "（「确定」→ 输入新值；「取消」→ 保持现有配置不变）"):
+            log("LLM 配置保持现状（" + cur["model"] + "）")
+            return
+        # 更新：三项留空 = 保持现值
+        base = ask_input("base_url（留空保持 " + cur["base_url"] + "）")
+        model = ask_input("model（留空保持 " + cur["model"] + "）")
+        key = ask_input("api_key（留空保持原值）", mask=True)
+        base = (base or "").strip() or cur["base_url"]
+        model = (model or "").strip() or cur["model"]
+        key = (key or "").strip() or cur["api_key"]
+    else:
+        base = ask_input(
+            "LLM 服务地址（默认 https://api.deepseek.com，留空用默认）")
+        base = (base or "").strip() or "https://api.deepseek.com"
+        model = ask_input(
+            "模型名（默认 deepseek-chat，留空用默认）")
+        model = (model or "").strip() or "deepseek-chat"
+        key = ask_input("API Key（星号隐藏；留空=暂存占位符，"
+                        "下次启动会再问你一次）", mask=True)
+        key = (key or "").strip() or "sk-PASTE-YOUR-KEY-HERE"
+
+    if "PASTE" in key.upper():
+        log("API Key 仍是占位符/为空 → 本次 LLM 不会实际调用，"
+            "下次启动可重新配置")
+    save_llm_config(base, key, model)
 
 
 def read_answer_from_page(page):
@@ -288,6 +416,56 @@ def load_answers():
     return {}
 
 
+def _llm_resolve_answers(page, answers, qcount):
+    """LLM 答案校验/补全（仅 llm.local.json 已配置时生效；否则原样返回）。
+    策略：先用 questions.json 的题面逐题调 LLM，
+      · 本地表已有答案且 LLM 一致  → 沿用本地（不写回）
+      · 本地已有但 LLM 不同       → 用 LLM，并写回本地
+      · 本地缺失                   → 用 LLM，并写回本地
+      · LLM 不确定/失败           → 保留本地（缺失则留给其它轮次/人工）
+    写回时保持"只改被题目覆盖的 key"，避免误删多余项。
+    LLM 失败不影响主流程：任何异常都静默降级。"""
+    try:
+        import llm_answerer as L
+    except Exception:
+        return answers
+    if not L.llm_enabled():
+        return answers
+    struct = L.load_question_structure()
+    corrected = 0
+    added = 0
+    for no in range(1, qcount + 1):
+        q = struct.get(no)
+        if not q:
+            continue
+        multi = "多选" in (q.get("type") or "")
+        llm_ans = L.answer_question(q, multi=multi)
+        if not llm_ans:
+            continue  # LLM 不确定 → 保留现状
+        local = answers.get(no)
+        if local is None:
+            answers[no] = llm_ans
+            added += 1
+            log("LLM 补答 第 %d 题 → %s" % (no, ",".join(llm_ans)))
+        elif [x for x in local if x] != llm_ans:
+            answers[no] = llm_ans
+            corrected += 1
+            log("LLM 校正 第 %d 题：%s → %s" % (no, ",".join(local), ",".join(llm_ans)))
+    if corrected or added:
+        try:
+            with open(ANSWER_FILE, "w", encoding="utf-8") as f:
+                json.dump({str(k): v for k, v in
+                           sorted(answers.items(), key=lambda kv: kv[0])},
+                          f, indent=2, ensure_ascii=False)
+            log("LLM 校验完成：校正 %d 题、补答 %d 题，已写回 %s"
+                % (corrected, added, ANSWER_FILE))
+        except Exception as e:
+            log("LLM 结果写回失败（不影响本次作答）：" + str(e)[:60])
+    else:
+        log("LLM 校验完成：答案表无需修改（本卷 %d 题）" % qcount)
+    return answers
+
+
 def handle_assessment(page):
     """考核/测验环节（#testForm 存在）：按答案表逐题作答并交卷。
     答案表覆盖不全时等待人工（最长 10 分钟）。
@@ -299,6 +477,8 @@ def handle_assessment(page):
     log("进入考核环节，共 %d 题" % qcount)
 
     answers = load_answers()
+    # LLM 校验/补全（未配置 llm.local.json 时自动跳过，行为与原来一致）
+    answers = _llm_resolve_answers(page, answers, qcount)
     all_covered = all((i + 1) in answers for i in range(qcount))
     if not all_covered:
         missing = [i + 1 for i in range(qcount) if (i + 1) not in answers]
@@ -365,7 +545,7 @@ def handle_assessment(page):
             if m:
                 log("课程状态：完成 %s/%s 项活动，进度 %s%%，考核 %s 分" % m.groups())
                 log("及格要求：学习进度 100%% 且考核 ≥ 60 分 → "
-                    + ("已及格 ✓" if m.group(2) == m.group(1)
+                    + ("已及格 √" if m.group(2) == m.group(1)
                        and m.group(3).startswith("100") and int(m.group(4)) >= 60
                        else "未达及格，请查看平台提示"))
             else:
@@ -482,6 +662,9 @@ def ensure_login(page, context, cred):
 
 
 def main():
+    # 可选 LLM 配置：每次启动都问一次（可跳过），
+    # 纯看视频用户点「否」即可，不写任何文件。
+    configure_llm_interactive()
     cred = load_credentials()
     finished = False
     while not finished:
@@ -615,6 +798,91 @@ def _run_session(cred):
         browser.close()
         log("本次学习结束")
         return True
+
+
+def run_learning_flow(page, ctx, cred):
+    """在 已登录 的 page 上跑完整学习流程：定位课时 → 挂机推进 →
+    课中应答 → 考核交卷。不管理浏览器生命周期（由调用方负责）。
+    返回 True 表示流程正常结束（课程完成或考核已交）。"""
+    if not goto_course(page, cred):
+        log("进入课程失败，请人工检查浏览器窗口")
+        return False
+
+    while True:  # ---- 外层循环：一节一节推进 ----
+        activity = current_activity(page)
+        log("当前课时：《%s》" % activity)
+
+        # 收尾判定：页面无视频也无进度文案时，检查「学习进度」页是否还有
+        # 未完成活动。已全部完成 → 课程结束；仍在考核页 → 走自动交卷
+        if (not activity and page.locator("video").count() == 0
+                and read_progress(page) is None):
+            try:
+                page.locator("a", has_text="学习进度").first.click(timeout=5000)
+                page.wait_for_timeout(3000)
+                if page.locator("tr", has_text="未完成").count() == 0:
+                    page.screenshot(path="progress_after.png")
+                    log("学习进度页已无未完成活动——课程已全部完成，结束")
+                    return True
+            except Exception:
+                pass
+            log("回到默认页继续")
+
+        # 考核/测验环节：有答案表则自动作答交卷；无答案表停下等人工
+        if "考核" in activity or (
+            read_progress(page) is None
+            and page.locator("video").count() == 0
+        ):
+            if handle_assessment(page):
+                log("考核环节已完成，学习结束")
+            else:
+                log("考核环节未在本次会话完成，请重新运行或人工处理！")
+            return True
+
+        none_rounds = 0  # 连续读不到进度条的轮数
+        while True:  # ---- 内层循环：单节监控 ----
+            # 掉线检测
+            if "login" in page.url:
+                log("会话失效，自动重新登录…")
+                if not ensure_login(page, ctx, cred) or not goto_course(page, cred):
+                    return False
+                break  # 回外层重新识别当前课时
+
+            fix_video_error(page)   # 视频「加载出错」自动刷新
+            handle_quiz(page)       # 有课中问题自动作答
+            ensure_playing(page)    # 视频暂停自动恢复播放
+
+            # 「您已完成这个活动」弹窗：确定 → 下一课时 → 重新识别
+            if handle_completed_popup(page):
+                none_rounds = 0
+                break
+
+            prog = read_progress(page)
+            if prog:
+                none_rounds = 0
+                req, done = prog
+                if done >= req:
+                    log("本节达标（%d/%d 分钟），进入下一课时" % (done, req))
+                    page.locator("a", has_text="下一个活动").first.click()
+                    page.wait_for_timeout(4000)
+                    # 会话自动续期：每完成一节刷新一次 Cookie 存档
+                    try:
+                        ctx.storage_state(path=AUTH_STATE)
+                    except Exception:
+                        pass
+                    break  # 回外层开始新一节
+                log("观看中：%d / %d 分钟" % (done, req))
+            else:
+                none_rounds += 1
+                log("未读到进度条（第 %d 次）" % none_rounds)
+                if none_rounds >= 3:
+                    nxt = page.locator("a", has_text="下一个活动")
+                    if nxt.count() > 0:
+                        log("判定本节无需观看（已完成或非视频课时），跳到下一节")
+                        nxt.first.click()
+                        page.wait_for_timeout(4000)
+                    none_rounds = 0
+                    break  # 回外层重新识别新课时
+            page.wait_for_timeout(POLL_SECONDS * 1000)
 
 
 if __name__ == "__main__":

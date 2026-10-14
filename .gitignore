@@ -1,9 +1,11 @@
 # 本地凭据与运行时文件，切勿提交到仓库
 credentials.local.json
 auth.json
+llm.local.json
 answers.json
 questions.json
 captcha.png
+run.log
 assessed_filled.png
 assessed_result.png
 progress_after.png

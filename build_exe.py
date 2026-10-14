@@ -53,18 +53,20 @@ def main():
         SOURCE,
         "--name", name,
         "--onefile",              # 单一可执行文件
+        "--noconsole",            # 不弹 cmd 黑窗：下载进度/日志全进 GUI 日志窗 + run.log
         "--clean",
         "--noconfirm",
         "--hidden-import", "playwright.sync_api",
         "--hidden-import", "tkinter",
         "--hidden-import", "tkinter.simpledialog",
+        "--hidden-import", "tkinter.ttk",
+        "--hidden-import", "tkinter.messagebox",
+        "--hidden-import", "PIL",
+        "--hidden-import", "PIL.Image",
+        "--hidden-import", "PIL.ImageTk",
         "--collect-all", "playwright",   # playwright 运行时 + node 驱动
+        "--collect-submodules", "PIL",   # Pillow（验证码截图展示需要）
     ]
-    if sys.platform != "win32":
-        args.insert(1, "--console")      # macOS/Linux 保留终端便于排错
-    else:
-        args.insert(1, "--noconsole")    # Windows 不弹黑框
-
     print("构建参数：", " ".join(args))
     run(args)
 
@@ -76,11 +78,20 @@ def main():
         print("体积：%.1f MB" % (os.path.getsize(out) / 1024 / 1024))
     else:
         print("!! 未找到产物，请检查上方日志")
+    # 附带运行时数据文件（可选，拷到 dist 便于直接使用）
+    import shutil
+    for data in ("questions.json", "answers.json"):
+        if os.path.exists(data):
+            dst = os.path.join("dist", data)
+            if not os.path.exists(dst):
+                shutil.copy2(data, dst)
+                print("已附带：" + dst)
     print("\n分发提示：")
-    print("  · Windows 双击运行；macOS/Linux：chmod +x 后 ./<name>")
-    print("  · 首次运行自动下载浏览器内核（约 1-2 分钟），之后免下载")
-    print("  · 首次运行弹窗录入账号/密码，保存在程序所在目录，之后免登录")
-    print("  · 程序同目录放置 answers.json 才会自动答考核")
+    print("  · Windows 双击运行（无 cmd 黑窗，日志在 GUI 运行日志区 + 程序目录 run.log）")
+    print("  · 首次运行自动下载浏览器内核（默认 npmmirror 国内源，约 1-2 分钟）")
+    print("  · 首次运行弹窗录入账号/密码/验证码，保存在程序所在目录，之后免登录")
+    print("  · 窗口内「LLM 设置」按钮可随时配置/清除 LLM 自动答题（可选）")
+    print("  · 同目录放 answers.json+questions.json 才会用 LLM 校验/补答考核")
 
 
 if __name__ == "__main__":
