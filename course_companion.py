@@ -57,6 +57,8 @@ _harden_console()
 
 # ================== 配置区 ==================
 POLL_SECONDS = 20           # 监控间隔（秒）
+ASSESS_WAIT_SECONDS = 600   # 考核环节等待上限（秒）：等人工完成 / 等补配 LLM
+MANUAL_POLL_SECONDS = 20    # 等待期间轮询间隔（秒）：检测人工完成、LLM 配置变化
 AUTH_STATE = "auth.json"    # 登录态保存文件（自动生成，免重复登录）
 CRED_FILE = "credentials.local.json"  # 本地凭据配置（已被 .gitignore 排除）
 
@@ -208,7 +210,8 @@ def configure_llm_interactive():
     方便随时改 base_url/model/key。"""
     if not _ask_yesno(
             "是否配置 LLM 自动答题？\n"
-            "（纯看视频可点「取消」跳过；考核环节想用 LLM 校验/补答答案表则点「确定」）"):
+            "（考核环节必须配置 LLM 才能自动作答交卷——每个账号考题可能不同；\n"
+            " 纯看视频可点「取消」跳过，考核前随时可重新运行本程序配置）"):
         log("跳过 LLM 配置（当前状态保持不变）")
         return
 
@@ -444,88 +447,208 @@ def load_answers():
     return {}
 
 
+def extract_questions_from_page(page):
+    """从当前考核页实时抓题（每个账号的卷子可能不同，绝不能拿本地
+    questions.json 当本卷题面）。返回
+      {题号: {"type","title","options":[{"choice","text"}]}}
+    结构与 llm_answerer.load_question_structure() 一致，可直接交给 LLM；
+    抓取失败返回 {}（调用方决定是否回退/等待）。"""
+    out = {}
+    try:
+        items = page.locator("#topicList .m-topic-item")
+        n = items.count()
+    except Exception:
+        return out
+    for i in range(n):
+        it = items.nth(i)
+        no = i + 1
+        whole = ""
+        try:
+            whole = it.inner_text(timeout=1500)
+        except Exception:
+            pass
+        first_line = whole.split("\n", 1)[0].strip() if whole else ""
+        # 题型：题干行里的 [单选题/多选题/判断题] 标记
+        qtype = ""
+        if "多选" in first_line:
+            qtype = "多选题"
+        elif "单选" in first_line:
+            qtype = "单选题"
+        elif "判断" in first_line:
+            qtype = "判断题"
+        # 题干：优先专用标题类，否则题干行；去掉 "N、" 与 [题型] 前缀
+        stem = first_line
+        for sel in (".topic-title", ".q-title", "h3", "h4"):
+            try:
+                t = it.locator(sel).first.inner_text(timeout=400).strip()
+                if t:
+                    stem = t
+                    break
+            except Exception:
+                continue
+        stem = re.sub(r"^\s*\d+\s*[.、,，]\s*", "", stem)
+        stem = re.sub(r"\s*\[(?:单选题|多选题|判断题)\]", "", stem)
+        stem = stem.replace(" ", " ").strip()
+        if not stem:
+            continue
+        # 选项：label 内 input[value] + 可见文本（ChoiceX 或 Correct/Incorrect）
+        opts = []
+        try:
+            labels = it.locator("label")
+            for j in range(labels.count()):
+                lab = labels.nth(j)
+                try:
+                    val = lab.locator("input").first.get_attribute("value")
+                except Exception:
+                    val = None
+                if not val:
+                    continue
+                try:
+                    txt = lab.inner_text(timeout=500).strip()
+                except Exception:
+                    txt = ""
+                opts.append({"choice": val, "text": txt})
+        except Exception:
+            opts = []
+        if not opts:  # 兜底：直接找带 value 的 input，回溯其 label/父节点文本
+            try:
+                ins = it.locator("input[value]")
+                for j in range(ins.count()):
+                    el = ins.nth(j)
+                    val = el.get_attribute("value")
+                    if not val:
+                        continue
+                    txt = el.evaluate(
+                        "e => { var n = e.closest('label') || e.parentElement;"
+                        " return (n && n.innerText) || ''; }")
+                    opts.append({"choice": val, "text": (txt or "").strip()})
+            except Exception:
+                pass
+        # 题型兜底：有 checkbox 视为多选
+        if not qtype:
+            try:
+                qtype = ("多选题" if it.locator("input[type=checkbox]").count()
+                         else "单选题")
+            except Exception:
+                qtype = "单选题"
+        if not opts:
+            continue  # 没抓到选项的题绝不交给 LLM（宁缺毋滥）
+        out[no] = {"type": qtype, "title": stem, "options": opts}
+    return out
+
+
 def _llm_resolve_answers(page, answers, qcount):
-    """LLM 答案校验/补全（仅 llm.local.json 已配置时生效；否则原样返回）。
-    策略：先用 questions.json 的题面逐题调 LLM，
-      · 本地表已有答案且 LLM 一致  → 沿用本地（不写回）
-      · 本地已有但 LLM 不同       → 用 LLM，并写回本地
-      · 本地缺失                   → 用 LLM，并写回本地
-      · LLM 不确定/失败           → 保留本地（缺失则留给其它轮次/人工）
-    写回时保持"只改被题目覆盖的 key"，避免误删多余项。
-    LLM 失败不影响主流程：任何异常都静默降级。"""
+    """让 LLM 作答当前考核卷（answers = 本次会话已答出的题号→选项，
+    只补缺、不重复调用）。每个账号的题目可能不同：
+      · 题面以考核页**实时抓取**为准（整页抓取失败才回退本地题库并告警）
+      · LLM 未配置 / 某题答不出 → 该题保持缺失，**绝不拿别的卷答案顶替**
+      · 每答出一批就写回 answers.json（作为本卷答题记录，供人工复核）"""
     try:
         import llm_answerer as L
     except Exception:
         return answers
     if not L.llm_enabled():
         return answers
-    struct = L.load_question_structure()
-    corrected = 0
+    struct = extract_questions_from_page(page)
+    if struct:
+        src = "考核页实时抓取"
+    else:
+        struct = L.load_question_structure()
+        src = "本地 questions.json 回退"
+        log("!! 题面抓取失败，回退本地题库（若与本卷不符请人工核对/人工完成）")
+    log("题面来源：%s（抓到 %d 题，本卷共 %d 题）" % (src, len(struct), qcount))
     added = 0
     for no in range(1, qcount + 1):
+        if no in answers:
+            continue  # 本次会话已答出，不重复调 LLM
         q = struct.get(no)
         if not q:
+            log("第 %d 题题面缺失，本题不作答" % no)
             continue
         multi = "多选" in (q.get("type") or "")
         llm_ans = L.answer_question(q, multi=multi)
         if not llm_ans:
-            continue  # LLM 不确定 → 保留现状
-        local = answers.get(no)
-        if local is None:
-            answers[no] = llm_ans
-            added += 1
-            log("LLM 补答 第 %d 题 → %s" % (no, ",".join(llm_ans)))
-        elif [x for x in local if x] != llm_ans:
-            answers[no] = llm_ans
-            corrected += 1
-            log("LLM 校正 第 %d 题：%s → %s" % (no, ",".join(local), ",".join(llm_ans)))
-    if corrected or added:
+            log("LLM 对第 %d 题未给出确定答案，本题不作答" % no)
+            continue
+        answers[no] = llm_ans
+        added += 1
+        log("LLM 答 第 %d 题 → %s" % (no, ",".join(llm_ans)))
+    if added:
         try:
             with open(ANSWER_FILE, "w", encoding="utf-8") as f:
                 json.dump({str(k): v for k, v in
                            sorted(answers.items(), key=lambda kv: kv[0])},
                           f, indent=2, ensure_ascii=False)
-            log("LLM 校验完成：校正 %d 题、补答 %d 题，已写回 %s"
-                % (corrected, added, ANSWER_FILE))
+            log("LLM 答题记录已写回 %s（本卷 %d/%d 题）"
+                % (ANSWER_FILE, len(answers), qcount))
         except Exception as e:
             log("LLM 结果写回失败（不影响本次作答）：" + str(e)[:60])
-    else:
-        log("LLM 校验完成：答案表无需修改（本卷 %d 题）" % qcount)
     return answers
 
 
 def handle_assessment(page):
-    """考核/测验环节（#testForm 存在）：按答案表逐题作答并交卷。
-    答案表覆盖不全时等待人工（最长 10 分钟）。
+    """考核/测验环节（#testForm 存在）：**必须由 LLM 实时看题作答**后自动交卷。
+    每个账号的考核题目可能不同，静态答案表不能跨卷套用，因此：
+      · 未配置 LLM → **不作答、不交卷**：日志明确提示去「⚙ LLM 设置」配置，
+        然后轮询等待——你在 GUI 里保存 LLM 配置后**自动接管**（无需重启），
+        或你在浏览器里人工完成也能接上；上限 ASSESS_WAIT_SECONDS。
+      · 已配置 LLM → 实时抓题逐题作答，**全部答出才交卷**；
+        答不出的题留空继续等待/重试，绝不拿别的卷的答案乱填。
     返回 True 表示交卷成功（或已人工完成）；False 表示会话内未完成。"""
     if page.locator("#testForm").count() == 0:
         return True  # 不是考核页
     items = page.locator("#topicList .m-topic-item")
     qcount = items.count()
     log("进入考核环节，共 %d 题" % qcount)
+    try:
+        import llm_answerer as LA
+    except Exception:
+        LA = None
 
-    answers = load_answers()
-    # LLM 校验/补全（未配置 llm.local.json 时自动跳过，行为与原来一致）
-    answers = _llm_resolve_answers(page, answers, qcount)
-    all_covered = all((i + 1) in answers for i in range(qcount))
-    if not all_covered:
-        missing = [i + 1 for i in range(qcount) if (i + 1) not in answers]
-        log("答案表缺少第 %s 题，等待人工作答（10 分钟内完成，脚本自动检测）…"
-            % ",".join(map(str, missing[:8])) + ("…" if len(missing) > 8 else ""))
-        for _ in range(60):
-            page.wait_for_timeout(10000)
+    def llm_ready():
+        return bool(LA and LA.llm_enabled())
+
+    # ---- 1) 作答：LLM 未配置/未答全 → 等待（可补配 LLM 自动接管 / 人工完成） ----
+    answers = {}
+    deadline = time.time() + ASSESS_WAIT_SECONDS
+    ready_to_submit = False
+    while time.time() < deadline:
+        if llm_ready():
+            answers = _llm_resolve_answers(page, answers, qcount)
+            missing = [i + 1 for i in range(qcount) if (i + 1) not in answers]
+            if not missing:
+                ready_to_submit = True
+                break  # 全部答出 → 交卷
+            log("LLM 仍有未答出的题：%s（等待人工完成或稍后自动重试…）"
+                % ",".join(map(str, missing[:8])))
+        else:
+            log("!! 未配置 LLM 自动答题——本次考核【不作答、不交卷】")
+            log("   原因：每个账号的考核题目可能不同，须由 LLM 实时看题作答")
+            log("   处理：点窗口「⚙ LLM 设置」填 base_url / model / api_key 保存后，"
+                "本脚本自动接管；也可人工在浏览器完成")
+        # 轮询等待：人工完成 / LLM 配置保存后自动接管 / 超时
+        while time.time() < deadline:
+            page.wait_for_timeout(MANUAL_POLL_SECONDS * 1000)
             if page.locator("#testForm").count() == 0:
-                log("人工作业完成（考核页已关闭），继续")
+                log("考核页已关闭（人工完成/已交卷），继续")
                 return True
-            # 人工可能已交卷：进度提示变化
             try:
                 if "您已完成" in page.inner_text(".g-study-prompt", timeout=500):
                     log("检测到考核已完成提示")
                     return True
             except Exception:
                 pass
+            if llm_ready():
+                log("检测到 LLM 已配置，自动接管作答…")
+                break  # → 外层 while 走 LLM 分支
+    if not ready_to_submit:
+        log("考核等待超时（%d 分钟内未完成自动作答），本次未交卷"
+            % (ASSESS_WAIT_SECONDS // 60))
+        log("请人工完成，或点「⚙ LLM 设置」配置 LLM 后重新运行")
         return False
-
+    if page.locator("#testForm").count() == 0:
+        log("考核页已被人工关闭/完成，无需交卷")
+        return True
     # 逐题勾选：多选题 checkbox / 单选判断题 radio，点击 label 联动 strong.on
     for i in range(qcount):
         no = i + 1

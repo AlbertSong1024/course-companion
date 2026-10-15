@@ -39,7 +39,10 @@ ck("解压出 course_companion.exe", os.path.exists(exe))
 ck("内核随包存在(chrome.exe)",
    os.path.exists(os.path.join(app_dir, "ms-playwright",
                                "chromium-1234", "chrome-win64", "chrome.exe")))
-ck("答案表随包存在", os.path.exists(os.path.join(app_dir, "answers.json")))
+ck("题库回退源随包存在(questions.json)",
+   os.path.exists(os.path.join(app_dir, "questions.json")))
+ck("未预置 answers.json(考核由 LLM 实时读题,答题记录运行时生成)",
+   not os.path.exists(os.path.join(app_dir, "answers.json")))
 ck("使用说明 README.txt 随包存在",
    os.path.exists(os.path.join(app_dir, "README.txt")))
 ck("无隐私文件泄漏(凭据/auth)联检",

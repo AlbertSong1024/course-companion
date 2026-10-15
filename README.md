@@ -26,7 +26,7 @@
 | 🔐 **自动登录** | 账号密码自动填入；验证码图片自动弹出，你瞄一眼输 4 个数字，剩下交给它 |
 | ▶️ **保持播放** | 视频暂停？自动续播。「加载出错」？自动刷新。进度在服务端，一秒不丢 |
 | 💬 **课中应答** | 随堂问题弹出的瞬间，读取页面自带的参考答案并作答；解析不到就等你，绝不瞎选 |
-| 📝 **考核自动交卷** | 课程最后的考核环节：提供 `answers.json` 答案表（题号→ChoiceX）自动逐题作答交卷；没有答案表就停下等你，10 分钟内人工完成它自动接上 |
+| 📝 **考核自动交卷** | 考核环节由 **LLM 实时读题作答**（每个账号考题可能不同，不靠固定答案表）；未配置 LLM 则**不作答、不交卷**并提示去「⚙ LLM 设置」配置，保存后**自动接管**；10 分钟内人工完成也能接上 |
 | ✅ **交卷核对** | 交卷后自动到学习进度页核对完成项数、进度百分比、考核成绩与及格线 |
 | ⏭️ **课时推进** | 时长一到自动进入下一节；已完成的节「已读跳过」，绝不回头 |
 | 🎯 **直达定位** | 不逐节翻找——从学习进度页一步跳到第一个未完成的课时 |
@@ -38,9 +38,9 @@
 
 1. 下载 [v1.0.0 安装包](https://github.com/AlbertSong1024/course-companion/releases/tag/v1.0.0)（提示风险请看下方「⚠️ 提示怎么办」，可用 SHA256 核验）；首次自动下载浏览器内核（**默认走 npmmirror 国内镜像**，进度实时显示在**窗口内「运行日志」区**（完整日志同时存程序目录 `run.log`），约 1-2 分钟，弱网中断会**自动重试 3 次并清理残留锁**，之后免下载；3 次仍失败时删掉程序旁 `ms-playwright` 文件夹重跑，或设 `PLAYWRIGHT_DOWNLOAD_HOST=https://cdn.playwright.dev` 换官方源）；
 2. 弹出 **GUI 登录窗**：账号、密码、验证码图片（窗内直接显示）、验证码输入框、「登 录」按钮——输完点登录即全自动执行看课 / 课中应答 / 考核交卷 / 进度核对；
-3. 窗口里的 **「⚙ LLM 设置」按钮随时可点**（登录前、登录后都常驻）：填 base_url / model / api_key 保存即生效，也可一键清除 LLM 配置回纯静态答案表模式。
+3. 窗口里的 **「⚙ LLM 设置」按钮随时可点**（登录前、登录后都常驻）：填 base_url / model / api_key 保存即生效，也可随时清除；**考核环节必须配置 LLM 才会自动作答交卷**（未配置则不作答不交卷，保存后自动接管）。
 
-**🚀 便携版（推荐，内核已内置免下载）**：[course_companion_portable_v1.0.0.zip](https://github.com/AlbertSong1024/course-companion/releases/tag/v1.0.0)（375 MB）——exe + 谷歌浏览器内核 + 答案表 + `README.txt` 全打包，解压到任意目录双击 `course_companion\course_companion.exe` 即用，**首跑不再等待内核下载**（单文件版首跑需 1-2 分钟下载内核，便携版跳过此步直接进登录窗）；包内不含任何凭据/会话文件，已通过解压即用验证（免下载秒启动 + GUI 弹出 11/11）。
+**🚀 便携版（推荐，内核已内置免下载）**：[course_companion_portable_v1.0.0.zip](https://github.com/AlbertSong1024/course-companion/releases/tag/v1.0.0)（375 MB）——exe + 谷歌浏览器内核 + 题库回退源 `questions.json` + `README.txt` 全打包（考核答题记录 `answers.json` 运行时自动生成，不随包分发），解压到任意目录双击 `course_companion\course_companion.exe` 即用，**首跑不再等待内核下载**（单文件版首跑需 1-2 分钟下载内核，便携版跳过此步直接进登录窗）；包内不含任何凭据/会话文件，已通过解压即用验证（免下载秒启动 + GUI 弹出 11/11）。
 
 - **Windows**：[v1.0.0 安装包下载](https://github.com/AlbertSong1024/course-companion/releases/tag/v1.0.0)（`course_companion.exe`，68 MB，附 `SHA256` 校验文件）→ 双击运行（无 cmd 黑窗；日志看窗口「运行日志」区，完整存档在程序目录 `run.log`）
 - **macOS / Linux**：`course_companion` → `chmod +x` 后 `./course_companion`
@@ -60,7 +60,7 @@ PyInstaller 单文件 exe 标记为"不常见/有风险"；通常随发布时间
 certutil -hashfile course_companion.exe SHA256
 ```
 
-输出应与 `.sha256` 文件内容一致（v1.0.0 最新构建为 `7548914a0517060dc90c528a8126abf7208dff1dafd02dcf2cbd7432c687a9ce`）；
+输出应与 `.sha256` 文件内容一致（v1.0.0 最新构建为 `acd244bc936d4c63ae81d9eb53f4c1cc9deb927a777767c0273dcaf25d337ce7`）；
 一致即文件与本仓库构建产物完全相同，可放心运行。
 
 逐级放行方法（按你遇到的提示选一种）：
@@ -85,7 +85,7 @@ python build_exe.py                         # 生成 dist/course_companion[.exe]
 
 - 产物为 PyInstaller **onefile** 模式（~55MB，不含浏览器内核）；
 - `course_companion_gui.py` 是一键入口：自检/下载 Chromium 内核 → GUI 登录窗 → 全流程；
-- 构建完成会把 `answers.json` / `questions.json` 一并附到 `dist/`（有才附）；
+- 构建完成会把 `questions.json` 一并附到 `dist/`（有才附；`answers.json` 是使用者自己的答题记录，不随包分发）；
 - 三平台分发：在三台构建机（Windows / macOS / Linux）上各跑一次 `python build_exe.py`，把三个产物分别放入 `releases/` 分发即可。
 
 ## 🚀 源码运行（需 Python）
@@ -114,9 +114,9 @@ python course_companion.py
   ├─ 加载出错  → 🔄 自动刷新（进度存服务端，刷新不丢） → 继续巡检
   └─ 时长达标  → ⏭️ 下一课时 → 回到「进度页直达」
   ↓
-📝 考核环节（页面出现考核表单）
-  ├─ 有答案表 → 逐题作答 → 自动交卷 ─┐
-  └─ 无答案表 → 等你人工完成（10 分钟内自动接上）┤
+📝 考核环节（页面出现考核表单 · 必须 LLM 实时读题）
+  ├─ 已配 LLM → 实时抓题 → 逐题作答 → 自动交卷 ─┐
+  └─ 未配 LLM → 不作答不交卷，提示配置/等人工（10 分钟） ┤
                                               ↓
                           ✅ 学习进度页核对：完成项 / 进度 / 成绩
                                               ↓
@@ -138,22 +138,27 @@ python course_companion.py
 | `credentials.local.json` | 你的账号密码（Base64 编码） | ⛔ `.gitignore` 排除 |
 | `credentials.local.json.example` | 配置模板 | ✅ |
 | `auth.json` | 登录会话（自动生成） | ⛔ `.gitignore` 排除 |
-| `answers.json` | 考核答案表（题号 → `ChoiceX` 列表；没有则考核环节等你人工） | 按需 |
-| `questions.json` | 导出试卷用（脚本运行时可选生成，供整理答案参考） | 按需 |
-| `llm.local.json` | LLM 答题配置（可选；配置后考核环节自动校验/补全答案表） | ⛔ `.gitignore` 排除 |
+| `answers.json` | LLM 答题记录（每次考核作答自动写回本卷答案；不再作为作答依据） | 按需 |
+| `questions.json` | 本地题库（考核题面优先实时抓取，本文件仅作抓取失败时的回退来源） | 按需 |
+| `llm.local.json` | LLM 答题配置（**考核必需**；未配置则考核不作答不交卷） | ⛔ `.gitignore` 排除 |
 | `progress_after.png` | 交卷后学习进度页截图（自动核对存档） | ⛔ 运行时生成 |
 | `run.log` | exe 每次运行的完整日志（窗口日志区的存档） | ⛔ `.gitignore` 排除 |
 | `course_companion_gui.py` | 一键运行入口（自检内核 + 调主流程，供 PyInstaller 打包） | ✅ |
 | `course_companion_login.py` | GUI 登录窗 + 浏览器线程（登录/看课/考核编排） | ✅ |
 | `llm_answerer.py` | LLM 答题模块（纯 urllib，OpenAI 兼容接口） | ✅ |
 | `build_exe.py` | PyInstaller 构建脚本（生成各平台单文件可执行） | ✅ |
-| `_verify_mode1.py` / `_verify_mode1_live.py` / `_verify_login_fill.py` / `_verify_llm_gui.py` / `_exe_e2e.py` / `_verify_portable.py` | 开发验证脚本（离线自检 / 真实浏览器冒烟 / 登录回填 / GUI日志+LLM设置全链路 / exe 端到端 / 便携包解压即用） | ✅ |
+| `_verify_mode1.py` / `_verify_mode1_live.py` / `_verify_login_fill.py` / `_verify_llm_gui.py` / `_verify_assessment_llm.py` / `_exe_e2e.py` / `_verify_portable.py` | 开发验证脚本（离线自检 / 真实浏览器冒烟 / 登录回填 / GUI日志+LLM设置全链路 / 考核必须LLM三场景 / exe 端到端 / 便携包解压即用） | ✅ |
 
-### 📝 考核答案表怎么填
+### 📝 考核环节怎么答（必须配置 LLM）
 
-考核环节需要逐题作答。把 30 题答案存成 `answers.json`，脚本到考核页时会自动读取、勾选并交卷；**缺题就停下等你，10 分钟内人工完成它自动接上**。
+每个账号的考核题目**可能不同**，固定答案表不能跨卷套用——所以考核环节改为 **LLM 实时读题作答**：
 
-格式：`{题号: [ChoiceX, ...]}`，`ChoiceX` 中 X 是第 X+1 个选项（Choice0=A、Choice1=B、…）。单选 1 个值，多选多个值，判断题 Correct/Incorrect。
+- **题面来源**：到考核页后**当场抓取**本卷题干+选项发给 LLM（不依赖本地 `questions.json`，抓取失败才回退本地题库并告警）；
+- **已配置 LLM**：逐题作答，**全部答出才自动交卷**；LLM 某题答不出→该题留空继续等待/重试，**绝不拿别的卷的答案乱填**；
+- **未配置 LLM**：**不作答、不交卷**——日志明确提示去「⚙ LLM 设置」配置，期间每 20 秒轮询，你在窗口里保存 LLM 后**自动接管**（无需重启），或你在浏览器人工完成也能接上；上限 10 分钟；
+- **`answers.json`** 现在是「LLM 答题记录」：每次作答自动写回本卷答案（题号 → `ChoiceX` 列表），供你交卷后人工复核，不再是作答依据。
+
+`answers.json` 格式（供人工复核参考）：`{题号: [ChoiceX, ...]}`，Choice0=A、Choice1=B、…，判断题 Correct/Incorrect。
 
 ```json
 {
@@ -163,19 +168,21 @@ python course_companion.py
 }
 ```
 
-> 答案可以人工整理，也可以让 LLM 基于课程要点生成一份初稿再人工核对。脚本对缺失/错位的题只会提示，不会乱填。
+> 答错风险由 LLM 判断决定：交卷后脚本会自动到「学习进度」页核对考核成绩，不及格请人工复核 `answers.json` 里 LLM 记录的答案。
 
-### 🤖 LLM 自动答题（可选，默认关闭）
+### 🤖 LLM 自动答题（考核环节必需）
+
+> ⚠️ **考核必须配置 LLM**：每人考题不同，未配置则**不作答、不交卷**（日志会提示去配置，保存后自动接管）。
 
 两种方式共用同一份 `llm.local.json`，配置互相通用；配置**实时生效**——运行中保存，下一题立即用上，无需重启。
 
-- **方式一（源码 `course_companion.py`）**：每次启动先弹「是否配置 LLM 自动答题？」——**纯看视频直接点跳过**，不写任何文件、不影响后续流程；想用 LLM 校验/补答答案表则点确定，逐项录入（留空=保持默认）。已配置过也每次启动都问，可随时改/删。
-- **方式二（exe / GUI）**：登录窗里常驻 **「⚙ LLM 设置」按钮**（登录前、登录后都可点）——弹窗填 base_url / model / api_key，点保存立即生效；「清除 LLM 配置」一键回到纯静态答案表模式。窗口状态栏实时显示「LLM 答题：已启用 / 未启用」。
+- **方式一（源码 `course_companion.py`）**：每次启动先弹「是否配置 LLM 自动答题？」——纯看视频可点跳过（不写任何文件）；要过考核则点确定逐项录入（留空=保持默认）。已配置过也每次启动都问，可随时改/删。
+- **方式二（exe / GUI）**：登录窗里常驻 **「⚙ LLM 设置」按钮**（登录前、登录后都可点）——弹窗填 base_url / model / api_key，点保存立即生效；「清除 LLM 配置」回到未配置状态。窗口状态栏实时显示「LLM 答题：已启用 / 未启用」。
 
 考核环节的行为：
 
-- **没配 LLM / 占位符 key**：100% 走静态 `answers.json`（原行为）；
-- **配了真 key**：到考核页先逐题调 LLM 校验/补全 `answers.json`（LLM 答案直接修正并写回，之后同一份卷子不再重复调用），再勾选交卷；LLM 失败/不确定 → 静默保留原状。
+- **没配 LLM / 占位符 key**：**不作答、不交卷**，日志提示配置；每 20 秒轮询，保存 LLM 后自动接管，或 10 分钟内人工完成也能接上；
+- **配了真 key**：到考核页**实时抓取**本卷题面逐题调 LLM 作答，全部答出才交卷，答案写回 `answers.json` 记录；LLM 某题不确定→留空等待/重试，不乱填。
 
 手动方式（不想弹窗时）：直接编辑 `llm.local.json`，格式：
 
@@ -187,10 +194,10 @@ python course_companion.py
 }
 ```
 
-- 题目来源：优先 `questions.json` 题面，逐题发给 LLM；
+- 题目来源：**优先考核页实时抓取**（每人考卷可能不同），仅抓取失败才回退 `questions.json`；
 - 零新增依赖：纯 `urllib`，兼容任何 OpenAI 格式 `/chat/completions`（DeepSeek、本地 vLLM/Ollama 等，改 `base_url` 即可）。
 
-> ⚠️ LLM 答案仍可能错：交卷后脚本会自动到「学习进度」页核对考核成绩，不及格时请人工复核 `answers.json` 里被 LLM 校正过的题。
+> ⚠️ LLM 答案仍可能错：交卷后脚本会自动到「学习进度」页核对考核成绩，不及格时请人工复核 `answers.json` 里 LLM 记录的答案。
 
 > 💡 **换电脑？** 拷走项目 → 删掉 `credentials.local.json` → 重新运行配置即可，30 秒搞定。
 > 💡 **改密码？** 同上，删除配置文件重来。
@@ -201,6 +208,7 @@ python course_companion.py
 2. 🚫 **别多开**——同一账号多设备同时观看，平台只记录其一，两边都白挂
 3. 🔢 **验证码**——只在掉线重连时出现，看图输数字约 10 秒；会话续期让它很少来打扰
 4. 🪪 **绑定通行证**——账号未绑定统一通行证时，平台会弹「绑定通行证」弹窗拦截；程序检测到会在运行日志提示「请先绑定通行证，之后再使用本工具」并停止（同时保存截图 `passport_required.png`），绑定完成后再重跑即可
+5. 🤖 **考核要配 LLM**——到考核环节时若未配置 LLM，程序**不作答不交卷**并提示去「⚙ LLM 设置」填 base_url / model / api_key；保存后自动接管。**看视频本身不强制 LLM**，只有考核需要
 
 ## 📄 免责声明
 

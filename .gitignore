@@ -7,6 +7,7 @@ questions.json
 captcha.png
 run.log
 passport_required.png
+gui_log_proof.png
 # 打包临时目录与便携包产物（体积大，只上 Release 不入库）
 portable_stage/
 assessed_filled.png

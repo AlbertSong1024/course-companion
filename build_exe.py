@@ -79,8 +79,10 @@ def main():
     else:
         print("!! 未找到产物，请检查上方日志")
     # 附带运行时数据文件（可选，拷到 dist 便于直接使用）
+    # 只附 questions.json（考核题面的回退来源）；answers.json 是使用者
+    # 自己的答题记录，不随包分发（考核由 LLM 实时读题作答）
     import shutil
-    for data in ("questions.json", "answers.json"):
+    for data in ("questions.json",):
         if os.path.exists(data):
             dst = os.path.join("dist", data)
             if not os.path.exists(dst):
@@ -90,8 +92,8 @@ def main():
     print("  · Windows 双击运行（无 cmd 黑窗，日志在 GUI 运行日志区 + 程序目录 run.log）")
     print("  · 首次运行自动下载浏览器内核（默认 npmmirror 国内源，约 1-2 分钟）")
     print("  · 首次运行弹窗录入账号/密码/验证码，保存在程序所在目录，之后免登录")
-    print("  · 窗口内「LLM 设置」按钮可随时配置/清除 LLM 自动答题（可选）")
-    print("  · 同目录放 answers.json+questions.json 才会用 LLM 校验/补答考核")
+    print("  · 窗口内「LLM 设置」可随时配置/清除（考核环节必需：未配置则不作答不交卷）")
+    print("  · 考核由 LLM 实时读题作答（每人考卷可能不同）；保存 LLM 后自动接管")
 
 
 if __name__ == "__main__":
